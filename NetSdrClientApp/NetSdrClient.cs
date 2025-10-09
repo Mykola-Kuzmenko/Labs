@@ -131,7 +131,7 @@ namespace NetSdrClientApp
             }
         }
 
-        private TaskCompletionSource<byte[]> responseTaskSource;
+        private TaskCompletionSource<byte[]>? responseTaskSource;
 
         private async Task<byte[]> SendTcpRequest(byte[] msg)
         {
@@ -149,8 +149,7 @@ namespace NetSdrClientApp
             var resp = await responseTask;
 
             return resp;
-        }
-
+        }        
         private void _tcpClient_MessageReceived(object? sender, byte[] e)
         {
             //TODO: add Unsolicited messages handling here
