@@ -159,7 +159,17 @@ namespace NetSdrClientApp
                 responseTaskSource.SetResult(e);
                 responseTaskSource = null;
             }
+              else
+            {
+                // Обробка несанткціонованих / непередбачених повідомлень
+                HandleUnsolicitedMessage(e);
+            }
             Console.WriteLine("Response recieved: " + e.Select(b => Convert.ToString(b, toBase: 16)).Aggregate((l, r) => $"{l} {r}"));
+        }
+        private void HandleUnsolicitedMessage(byte[] message)
+        {
+            // Тут можна логувати або обробляти повідомлення
+            Console.WriteLine("Unsolicited message received: " + BitConverter.ToString(message));
         }
     }
 }
