@@ -2,6 +2,8 @@
 using NetSdrClientApp;
 using NetSdrClientApp.Networking;
 
+using System.Reflection;
+
 namespace NetSdrClientAppTests;
 
 public class NetSdrClientTests
@@ -114,6 +116,72 @@ public class NetSdrClientTests
         _updMock.Verify(tcp => tcp.StopListening(), Times.Once);
         Assert.That(_client.IQStarted, Is.False);
     }
-
+    
     //TODO: cover the rest of the NetSdrClient code here
+
+    [Test]
+    public async Task ChangeFrequencyAsync_SendsProperMessage()
+    {
+        await _client.ConnectAsync();
+
+        await _client.ChangeFrequencyAsync(145_000_000, 1);
+
+        _tcpMock.Verify(tcp => tcp.SendMessageAsync(It.IsAny<byte[]>()), Times.AtLeastOnce);
+    }
+    
+    [Test]
+    public async Task SendTcpRequest_NoConnection_ShouldReturnNull()
+    {
+        // отримуємо приватний метод через reflection
+        var method = typeof(NetSdrClient).GetMethod("SendTcpRequest", BindingFlags.NonPublic | BindingFlags.Instance);
+        var resultTask = (Task<byte[]>)method.Invoke(_client, new object[] { new byte[] { 0x01 } });
+
+        var result = await resultTask;
+        Assert.That(result, Is.Null);
+    }
+
+    [Test]
+    public async Task TcpClient_MessageReceived_ShouldCompleteTask()
+    {
+        // Arrange
+        await _client.ConnectAsync();
+
+        // Викликаємо приватний метод SendTcpRequest, щоб створити responseTaskSource
+        var sendMethod = typeof(NetSdrClient).GetMethod("SendTcpRequest", BindingFlags.NonPublic | BindingFlags.Instance);
+        var sendTask = (Task<byte[]>)sendMethod.Invoke(_client, new object[] { new byte[] { 0xAB } });
+
+        // Викликаємо обробник повідомлення
+        var handler = typeof(NetSdrClient).GetMethod("_tcpClient_MessageReceived", BindingFlags.NonPublic | BindingFlags.Instance);
+        byte[] response = { 0xAB };  // Маємо передати такий самий масив, як і у виклику SendTcpRequest
+        handler.Invoke(_client, new object[] { null, response });
+
+        // Act
+        var result = await sendTask;
+
+        // Assert: перевіряємо, що результат співпадає з переданим response
+        Assert.That(result, Is.EqualTo(response));
+    }
+
+    
+    
+    [Test]
+    public void UdpClient_MessageReceived_ShouldWriteToFile()
+    {
+        // Arrange
+        byte[] fakeMessage = Enumerable.Repeat((byte)0xAA, 32).ToArray();
+        var handler = typeof(NetSdrClient).GetMethod("_udpClient_MessageReceived", BindingFlags.NonPublic | BindingFlags.Instance);
+
+        string filePath = "samples.bin";
+        if (File.Exists(filePath))
+            File.Delete(filePath);
+
+        // Act
+        handler.Invoke(_client, new object[] { null, fakeMessage });
+
+        // Assert
+        Assert.That(File.Exists(filePath), Is.True);
+        var length = new FileInfo(filePath).Length;
+        Assert.That(length, Is.GreaterThan(0));
+    }
+    
 }
