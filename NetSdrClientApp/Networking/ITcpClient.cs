@@ -15,5 +15,6 @@ namespace NetSdrClientApp.Networking
 
         event EventHandler<byte[]> MessageReceived;
         public bool Connected { get; }
+        
     }
 }
