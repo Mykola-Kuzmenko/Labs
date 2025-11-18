@@ -16,6 +16,7 @@ namespace EchoServerTests
             await Task.Delay(300);
             server.Stop();
             await runTask;
+            Assert.True(runTask.IsCompletedSuccessfully, "Server did not complete successfully.");
         }
 
         //  Перевірка ехо-відповіді
@@ -26,23 +27,20 @@ namespace EchoServerTests
             var server = new EchoServer.EchoServer(port);
             var serverTask = server.StartAsync();
             await Task.Delay(300);
-
             using var client = new TcpClient();
             await client.ConnectAsync("127.0.0.1", port);
             using var stream = client.GetStream();
-
             var message = System.Text.Encoding.UTF8.GetBytes("ping");
-            await stream.WriteAsync(message, 0, message.Length);
-
-            var buffer = new byte[4];
-            int bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
-            var response = System.Text.Encoding.UTF8.GetString(buffer, 0, bytesRead);
-
+            var memory = new ReadOnlyMemory<byte>(message);
+            await stream.WriteAsync(memory, CancellationToken.None);  // Використовуємо CancellationToken.None
+            var buffer = new Memory<byte>(new byte[4]);  // Використовуємо Memory<byte> замість byte[]
+            int bytesRead = await stream.ReadAsync(buffer, CancellationToken.None);  // Використовуємо ReadAsync з Memory<byte>
+            var response = System.Text.Encoding.UTF8.GetString(buffer.Span.Slice(0, bytesRead));
             server.Stop();
             await serverTask;
-
             Assert.Equal("ping", response);
         }
+
 
         //  Перевірка повторного виклику Stop (щоб покрити "catch ObjectDisposedException")
         [Fact]
@@ -52,8 +50,9 @@ namespace EchoServerTests
             var runTask = server.StartAsync();
             await Task.Delay(300);
             server.Stop();
-            server.Stop(); // друга спроба
+            server.Stop(); 
             await runTask;
+            Assert.True(runTask.IsCompletedSuccessfully, "Server did not stop properly without errors.");
         }
 
         //  Перевірка, що HandleClient закінчує роботу при відключенні клієнта
@@ -71,6 +70,7 @@ namespace EchoServerTests
 
             server.Stop();
             await serverTask;
+            Assert.True(serverTask.IsCompletedSuccessfully, "Server did not complete successfully after client disconnected.");
         }
     }
 }

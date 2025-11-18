@@ -23,11 +23,12 @@ namespace EchoServer
         private TcpListener _listener;
         private readonly CancellationTokenSource _cts;
 
-        public EchoServer(int port, ILogger logger = null)
+        public EchoServer(int port, ILogger? logger = null)
         {
             _port = port;
             _logger = logger ?? new ConsoleLogger();
             _cts = new CancellationTokenSource();
+            _listener = new TcpListener(IPAddress.Any, _port);
         }
 
         public async Task StartAsync()
@@ -66,14 +67,15 @@ namespace EchoServer
         {
             using var stream = client.GetStream();
             byte[] buffer = new byte[1024];
+            var memoryBuffer = new Memory<byte>(buffer);
             int bytesRead;
 
             try
             {
                 while (!token.IsCancellationRequested &&
-                       (bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length, token)) > 0)
+                       (bytesRead = await stream.ReadAsync(memoryBuffer, token)) > 0)
                 {
-                    await stream.WriteAsync(buffer, 0, bytesRead, token);
+                    await stream.WriteAsync(memoryBuffer.Slice(0, bytesRead), token);
                 }
             }
             catch (Exception ex)
