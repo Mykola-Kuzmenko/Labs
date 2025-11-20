@@ -7,12 +7,26 @@ using System.Threading.Tasks;
 
 namespace EchoServer
 {
+    public interface IUdpClientLite : IDisposable
+    {
+        int Send(byte[] datagram, int bytes, IPEndPoint endPoint);
+    }
+    
+    internal sealed class UdpClientAdapter : IUdpClientLite
+    {
+        private readonly UdpClient _inner = new UdpClient();
+        public int Send(byte[] datagram, int bytes, IPEndPoint endPoint) => _inner.Send(datagram, bytes, endPoint);
+        public void Dispose() => _inner.Dispose();
+    }
+    
     public class EchoServer
     {
         private readonly int _port;
         private TcpListener _listener;
         private CancellationTokenSource _cancellationTokenSource;
 
+        public bool IsRunning => _listener != null && _listener.Server?.IsBound == true;
+        
         //constuctor
         public EchoServer(int port)
         {
@@ -22,7 +36,7 @@ namespace EchoServer
 
         public async Task StartAsync()
         {
-            _listener = new TcpListener(IPAddress.Any, _port);
+            _listener = new TcpListener(IPAddress.Loopback, _port);
             _listener.Start();
             Console.WriteLine($"Server started on port {_port}.");
 
@@ -30,14 +44,26 @@ namespace EchoServer
             {
                 try
                 {
-                    TcpClient client = await _listener.AcceptTcpClientAsync();
-                    Console.WriteLine("Client connected.");
-
-                    _ = Task.Run(() => HandleClientAsync(client, _cancellationTokenSource.Token));
+                    if (_listener.Pending())
+                    {
+                        var client = await _listener.AcceptTcpClientAsync();
+                        Console.WriteLine("Client connected.");
+                        _ = Task.Run(() => HandleClientAsync(client, _cancellationTokenSource.Token));
+                    }
+                    else
+                    {
+                        await Task.Delay(25, _cancellationTokenSource.Token); 
+                        // дрібна пауза, щоб Stop() встиг прервати цикл
+                    }
                 }
                 catch (ObjectDisposedException)
                 {
                     // Listener has been closed
+                    break;
+                }
+                catch (OperationCanceledException)
+                {
+                    //_listener.Stop() кинув — виходимо 
                     break;
                 }
             }
@@ -115,14 +141,16 @@ namespace EchoServer
     {
         private readonly string _host;
         private readonly int _port;
-        private readonly UdpClient _udpClient;
         private Timer _timer;
+        private ushort i = 0;
+        
+        private readonly IUdpClientLite _udpClient;
 
-        public UdpTimedSender(string host, int port)
+        public UdpTimedSender(string host, int port, IUdpClientLite udp = null)
         {
             _host = host;
             _port = port;
-            _udpClient = new UdpClient();
+            _udpClient = udp ?? new UdpClientAdapter(); // за замовчуванням реальний клієнт
         }
 
         public void StartSending(int intervalMilliseconds)
@@ -132,9 +160,7 @@ namespace EchoServer
 
             _timer = new Timer(SendMessageCallback, null, 0, intervalMilliseconds);
         }
-
-        ushort i = 0;
-
+        
         private void SendMessageCallback(object state)
         {
             try
@@ -151,10 +177,15 @@ namespace EchoServer
                 _udpClient.Send(msg, msg.Length, endpoint);
                 Console.WriteLine($"Message sent to {_host}:{_port} ");
             }
+            catch (ObjectDisposedException)
+            {
+                // Консоль або потік уже закриті — ігноруємо
+            }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error sending message: {ex.Message}");
             }
+            
         }
 
         public void StopSending()
