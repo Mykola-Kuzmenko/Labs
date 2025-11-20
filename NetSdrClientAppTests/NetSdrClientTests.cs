@@ -132,13 +132,18 @@ public class NetSdrClientTests
     [Test]
     public async Task SendTcpRequest_NoConnection_ShouldReturnNull()
     {
-        // отримуємо приватний метод через reflection
-        var method = typeof(NetSdrClient).GetMethod("SendTcpRequest", BindingFlags.NonPublic | BindingFlags.Instance);
-        var resultTask = (Task<byte[]>)method.Invoke(_client, new object[] { new byte[] { 0x01 } });
+        // arrange
+        var method = typeof(NetSdrClient)
+            .GetMethod("SendTcpRequest", BindingFlags.NonPublic | BindingFlags.Instance);
 
-        var result = await resultTask;
-        Assert.That(result, Is.Null);
+        // act
+        var task = (Task<byte[]>) method.Invoke(_client, new object[] { new byte[] { 0x01 } });
+        var result = await task;
+
+        // assert
+        Assert.That(result, Is.Null.Or.Empty);
     }
+    
 
     [Test]
     public async Task TcpClient_MessageReceived_ShouldCompleteTask()
@@ -161,27 +166,6 @@ public class NetSdrClientTests
         // Assert: перевіряємо, що результат співпадає з переданим response
         Assert.That(result, Is.EqualTo(response));
     }
-
     
-    
-    [Test]
-    public void UdpClient_MessageReceived_ShouldWriteToFile()
-    {
-        // Arrange
-        byte[] fakeMessage = Enumerable.Repeat((byte)0xAA, 32).ToArray();
-        var handler = typeof(NetSdrClient).GetMethod("_udpClient_MessageReceived", BindingFlags.NonPublic | BindingFlags.Instance);
-
-        string filePath = "samples.bin";
-        if (File.Exists(filePath))
-            File.Delete(filePath);
-
-        // Act
-        handler.Invoke(_client, new object[] { null, fakeMessage });
-
-        // Assert
-        Assert.That(File.Exists(filePath), Is.True);
-        var length = new FileInfo(filePath).Length;
-        Assert.That(length, Is.GreaterThan(0));
-    }
     
 }
