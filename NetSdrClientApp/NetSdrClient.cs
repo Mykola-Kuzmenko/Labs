@@ -14,8 +14,8 @@ namespace NetSdrClientApp
 {
     public class NetSdrClient
     {
-        private ITcpClient _tcpClient;
-        private IUdpClient _udpClient;
+        private readonly ITcpClient _tcpClient;
+        private readonly IUdpClient _udpClient;
 
         public bool IQStarted { get; set; }
 
@@ -66,7 +66,7 @@ namespace NetSdrClientApp
                 return;
             }
 
-;           var iqDataMode = (byte)0x80;
+            var iqDataMode = (byte)0x80;
             var start = (byte)0x02;
             var fifo16bitCaptureMode = (byte)0x01;
             var n = (byte)1;
@@ -114,14 +114,12 @@ namespace NetSdrClientApp
             await SendTcpRequest(msg);
         }
 
-        private void _udpClient_MessageReceived(object? sender, byte[] e)
+        private static void _udpClient_MessageReceived(object? sender, byte[] e)
         {
-            // Перевірка на null та порожнє повідомлення
-            if (e == null || e.Length == 0)
-            {
-                Console.WriteLine("Received message is null or empty.");
-                return;
-            }
+            NetSdrMessageHelper.TranslateMessage(e, out _, out _, out _, out byte[] body);
+            var samples = NetSdrMessageHelper.GetSamples(16, body);
+
+            Console.WriteLine($"Samples recieved: " + body.Select(b => Convert.ToString(b, toBase: 16)).Aggregate((l, r) => $"{l} {r}"));
 
             try
             {
@@ -157,15 +155,14 @@ namespace NetSdrClientApp
             }
         }
 
-
-        private TaskCompletionSource<byte[]> responseTaskSource;
+        private TaskCompletionSource<byte[]>? responseTaskSource;
 
         private async Task<byte[]> SendTcpRequest(byte[] msg)
         {
             if (_tcpClient == null || !_tcpClient.Connected)
             {
                 Console.WriteLine("No active connection.");
-                return null;
+                return Array.Empty<byte>();
             }
 
             responseTaskSource = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -186,9 +183,7 @@ namespace NetSdrClientApp
             var resp = await responseTask;
 
             return resp;
-        }
-
-
+        }        
         private void _tcpClient_MessageReceived(object? sender, byte[] e)
         {
             //TODO: add Unsolicited messages handling here
@@ -197,7 +192,17 @@ namespace NetSdrClientApp
                 responseTaskSource.SetResult(e);
                 responseTaskSource = null;
             }
+              else
+            {
+                // Обробка несанткціонованих / непередбачених повідомлень
+                HandleUnsolicitedMessage(e);
+            }
             Console.WriteLine("Response recieved: " + e.Select(b => Convert.ToString(b, toBase: 16)).Aggregate((l, r) => $"{l} {r}"));
+        }
+        private void HandleUnsolicitedMessage(byte[] message)
+        {
+            // Тут можна логувати або обробляти повідомлення
+            Console.WriteLine("Unsolicited message received: " + BitConverter.ToString(message));
         }
     }
 }
