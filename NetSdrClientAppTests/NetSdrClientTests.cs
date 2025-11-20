@@ -132,13 +132,18 @@ public class NetSdrClientTests
     [Test]
     public async Task SendTcpRequest_NoConnection_ShouldReturnNull()
     {
-        // отримуємо приватний метод через reflection
-        var method = typeof(NetSdrClient).GetMethod("SendTcpRequest", BindingFlags.NonPublic | BindingFlags.Instance);
-        var resultTask = (Task<byte[]>)method.Invoke(_client, new object[] { new byte[] { 0x01 } });
+        // arrange
+        var method = typeof(NetSdrClient)
+            .GetMethod("SendTcpRequest", BindingFlags.NonPublic | BindingFlags.Instance);
 
-        var result = await resultTask;
+        // act
+        var task = (Task<byte[]>) method.Invoke(_client, new object[] { new byte[] { 0x01 } });
+        var result = await task;
+
+        // assert
         Assert.That(result, Is.Null);
     }
+    
 
     [Test]
     public async Task TcpClient_MessageReceived_ShouldCompleteTask()
@@ -161,15 +166,18 @@ public class NetSdrClientTests
         // Assert: перевіряємо, що результат співпадає з переданим response
         Assert.That(result, Is.EqualTo(response));
     }
-
     
     
     [Test]
-    public void UdpClient_MessageReceived_ShouldWriteToFile()
+    public async Task UdpClient_MessageReceived_ShouldWriteToFile()
     {
         // Arrange
+        await _client.ConnectAsync();
+        await _client.StartIQAsync(); // ← ВАЖЛИВО
+
         byte[] fakeMessage = Enumerable.Repeat((byte)0xAA, 32).ToArray();
-        var handler = typeof(NetSdrClient).GetMethod("_udpClient_MessageReceived", BindingFlags.NonPublic | BindingFlags.Instance);
+        var handler = typeof(NetSdrClient).GetMethod("_udpClient_MessageReceived",
+            BindingFlags.NonPublic | BindingFlags.Instance);
 
         string filePath = "samples.bin";
         if (File.Exists(filePath))
@@ -180,8 +188,8 @@ public class NetSdrClientTests
 
         // Assert
         Assert.That(File.Exists(filePath), Is.True);
-        var length = new FileInfo(filePath).Length;
-        Assert.That(length, Is.GreaterThan(0));
+        Assert.That(new FileInfo(filePath).Length, Is.GreaterThan(0));
     }
+
     
 }
