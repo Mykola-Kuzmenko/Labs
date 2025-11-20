@@ -12,6 +12,7 @@ namespace EchoServer
         int Send(byte[] datagram, int bytes, IPEndPoint endPoint);
     }
     
+    // адаптер над System.Net.Sockets.UdpClient
     internal sealed class UdpClientAdapter : IUdpClientLite
     {
         private readonly UdpClient _inner = new UdpClient();
@@ -109,24 +110,33 @@ namespace EchoServer
 
         public static async Task Main(string[] args)
         {
-            EchoServer server = new EchoServer(5000);
+            bool autoExit = args.Contains("--exit"); // ← додано для тестів
 
-            // Start the server in a separate task
+            EchoServer server = new EchoServer(5000);
             _ = Task.Run(() => server.StartAsync());
 
-            string host = "127.0.0.1"; // Target IP
-            int port = 60000;          // Target Port
-            int intervalMilliseconds = 5000; // Send every 3 seconds
+            string host = "127.0.0.1";
+            int port = 60000;
+            int intervalMilliseconds = 5000;
 
             using (var sender = new UdpTimedSender(host, port))
             {
-                Console.WriteLine("Press any key to stop sending...");
                 sender.StartSending(intervalMilliseconds);
 
+                if (autoExit)
+                {
+                    // режим для тестів ✨
+                    await Task.Delay(200);
+                    sender.StopSending();
+                    server.Stop();
+                    return;
+                }
+
+                Console.WriteLine("Press any key to stop sending...");
                 Console.WriteLine("Press 'q' to quit...");
+
                 while (Console.ReadKey(intercept: true).Key != ConsoleKey.Q)
                 {
-                    // Just wait until 'q' is pressed
                 }
 
                 sender.StopSending();
@@ -134,6 +144,7 @@ namespace EchoServer
                 Console.WriteLine("Sender stopped.");
             }
         }
+
     }
 
 

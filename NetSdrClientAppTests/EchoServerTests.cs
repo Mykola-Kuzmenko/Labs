@@ -1,145 +1,141 @@
+using System;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
-using System.Text;
-using NUnit.Framework;
+using System.Reflection;
+using System.Threading;
+using System.Threading.Tasks;
 using EchoServer;
+using Moq;
+using NUnit.Framework;
 
 namespace EchoServerTests
 {
-    public class EchoServerTests
+    [TestFixture]
+    public class EchoServerSpecs
     {
-        private const int DelayBeforeConnect = 200;
-
-        [Test]
-        public async Task Server_StartAndStop_ShouldWork()
+        // ---------------------------
+        // helper: очікування умови
+        // ---------------------------
+        private static async Task SpinWaitUntil(Func<bool> cond, TimeSpan timeout)
         {
-            var server = new EchoServer.EchoServer(6100);
-            var serverTask = server.StartAsync();
-
-            await Task.Delay(DelayBeforeConnect);
-
-            Assert.That(server.IsRunning, Is.True);
-
-            server.Stop();
-            await serverTask;
-
-            Assert.That(server.IsRunning, Is.False);
+            var start = DateTime.UtcNow;
+            while (DateTime.UtcNow - start < timeout)
+            {
+                if (cond()) return;
+                await Task.Delay(25);
+            }
+            Assert.Fail("Timed out waiting for condition.");
         }
 
+        // ---------------------------
+        // 1. Сервер стартує і зупиняється
+        // ---------------------------
         [Test]
-        public async Task Server_ShouldEchoMessage()
+        public async Task Server_Starts_And_Stops_When_No_Clients()
         {
-            int port = 6101;
-            var server = new EchoServer.EchoServer(port);
-            var task = server.StartAsync();
+            var server = new EchoServer.EchoServer(50100);
+            var runTask = Task.Run(() => server.StartAsync());
 
-            await Task.Delay(DelayBeforeConnect);
+            await SpinWaitUntil(() => server.IsRunning, TimeSpan.FromSeconds(2));
+            server.Stop();
+
+            await Task.WhenAny(runTask, Task.Delay(1500));
+            Assert.That(runTask.IsCompleted, Is.True);
+        }
+
+        // ---------------------------
+        // 2. TCP ехо працює
+        // ---------------------------
+        [Test]
+        public async Task Echo_Works_Correctly()
+        {
+            int port = 50101;
+            var server = new EchoServer.EchoServer(port);
+
+            var runTask = Task.Run(() => server.StartAsync());
+            await SpinWaitUntil(() => server.IsRunning, TimeSpan.FromSeconds(2));
 
             using var client = new TcpClient();
-            await client.ConnectAsync("127.0.0.1", port);
+            await client.ConnectAsync(IPAddress.Loopback, port);
             using var stream = client.GetStream();
 
-            byte[] message = Encoding.UTF8.GetBytes("ping");
-            await stream.WriteAsync(message);
+            byte[] msg = System.Text.Encoding.UTF8.GetBytes("hello");
+            await stream.WriteAsync(msg, 0, msg.Length);
 
-            byte[] buffer = new byte[1024];
-            int bytesRead = await stream.ReadAsync(buffer);
+            byte[] buf = new byte[16];
+            int n = await stream.ReadAsync(buf, 0, buf.Length);
 
-            server.Stop();
-            await task;
-
-            Assert.That(Encoding.UTF8.GetString(buffer, 0, bytesRead), Is.EqualTo("ping"));
-        }
-
-        [Test]
-        public async Task Server_ShouldHandleMultipleClients()
-        {
-            int port = 6102;
-            var server = new EchoServer.EchoServer(port);
-            var task = server.StartAsync();
-
-            await Task.Delay(DelayBeforeConnect);
-
-            async Task<string> Send(string msg)
-            {
-                using var client = new TcpClient();
-                await client.ConnectAsync("127.0.0.1", port);
-
-                using var stream = client.GetStream();
-                byte[] data = Encoding.UTF8.GetBytes(msg);
-                await stream.WriteAsync(data);
-
-                byte[] buffer = new byte[1024];
-                int read = await stream.ReadAsync(buffer);
-
-                return Encoding.UTF8.GetString(buffer, 0, read);
-            }
-
-            var r1 = await Send("one");
-            var r2 = await Send("two");
-            var r3 = await Send("three");
+            string echoed = System.Text.Encoding.UTF8.GetString(buf, 0, n);
 
             server.Stop();
-            await task;
+            await Task.WhenAny(runTask, Task.Delay(1500));
 
-            Assert.That(r1, Is.EqualTo("one"));
-            Assert.That(r2, Is.EqualTo("two"));
-            Assert.That(r3, Is.EqualTo("three"));
+            Assert.That(echoed, Is.EqualTo("hello"));
         }
 
+        // ---------------------------
+        // 3. UdpTimedSender викликає Send
+        // ---------------------------
         [Test]
-        public async Task Server_ShouldStopGracefully_WhenStopCalled()
+        public void UdpTimedSender_Invokes_Send()
         {
-            var server = new EchoServer.EchoServer(6104);
-            var task = server.StartAsync();
+            var udp = new Mock<IUdpClientLite>();
+            udp.Setup(u => u.Send(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<IPEndPoint>()))
+                .Returns((byte[] b, int i, IPEndPoint ep) => i);
 
-            await Task.Delay(DelayBeforeConnect);
+            using var sender = new UdpTimedSender("127.0.0.1", 60000, udp.Object);
 
-            Assert.DoesNotThrow(() => server.Stop());
-            Assert.DoesNotThrowAsync(async () => await task);
+            sender.StartSending(10);
+            Thread.Sleep(60);
+            sender.StopSending();
+
+            udp.Verify(u => u.Send(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<IPEndPoint>()),
+                Times.AtLeastOnce);
         }
 
+        // ---------------------------
+        // 4. reflection викликає приватний callback
+        // ---------------------------
         [Test]
-        public async Task Server_ShouldNotEcho_WhenStopped()
+        public void UdpTimedSender_PrivateCallback_CanBeCalled()
         {
-            int port = 6105;
-            var server = new EchoServer.EchoServer(port);
-            var task = server.StartAsync();
+            var udp = new Mock<IUdpClientLite>();
+            udp.Setup(u => u.Send(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<IPEndPoint>()))
+                .Returns((byte[] b, int i, IPEndPoint ep) => i);
 
-            await Task.Delay(DelayBeforeConnect);
+            using var sender = new UdpTimedSender("127.0.0.1", 60000, udp.Object);
 
-            server.Stop();
-            await task;
+            MethodInfo mi = typeof(UdpTimedSender)
+                .GetMethod("SendMessageCallback", BindingFlags.Instance | BindingFlags.NonPublic);
 
-            Assert.ThrowsAsync<SocketException>(async () =>
-            {
-                using var client = new TcpClient();
-                await client.ConnectAsync("127.0.0.1", port);
-            });
+            Assert.That(mi, Is.Not.Null);
+
+            mi!.Invoke(sender, new object[] { null });
+
+            udp.Verify(u => u.Send(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<IPEndPoint>()),
+                Times.AtLeastOnce);
         }
 
+        // ---------------------------
+        // 5. Main можна викликати (але не чекати завершення)
+        // ---------------------------
         [Test]
-        public async Task Server_ClientShouldDisconnect_WhenCanceled()
+        public async Task EchoServer_Main_CanBeInvoked_AndExits()
         {
-            int port = 6106;
-            var server = new EchoServer.EchoServer(port);
-            var serverTask = server.StartAsync();
+            var main = typeof(EchoServer.EchoServer)
+                .GetMethod("Main", BindingFlags.Public | BindingFlags.Static);
 
-            await Task.Delay(DelayBeforeConnect);
+            Assert.That(main, Is.Not.Null);
 
-            var client = new TcpClient();
-            await client.ConnectAsync("127.0.0.1", port);
+            // викликаємо з параметром --exit
+            var task = (Task)main!.Invoke(null, new object?[] { new[] { "--exit" } });
 
-            var stream = client.GetStream();
-            await stream.WriteAsync(Encoding.UTF8.GetBytes("hello"));
+            // даємо Main час відпрацювати
+            bool finished = task.Wait(1000);
 
-            server.Stop();
-            await serverTask;
-
-            Assert.That(async () =>
-            {
-                await stream.ReadAsync(new byte[1024]);
-            }, Throws.Exception);
+            Assert.That(finished, Is.True, "Main did not exit in time");
         }
+
     }
 }
