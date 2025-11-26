@@ -1,97 +1,126 @@
 using System;
 using System.Net;
 using System.Net.Sockets;
-using System.Security.Cryptography;
+using System.Reflection;
 using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
+using NetSdrClientApp.Networking;
+using NUnit.Framework;
 
-namespace NetSdrClientApp.Networking;
+namespace NetSdrClientAppTests;
 
-public class UdpClientWrapper : IUdpClient
+[TestFixture]
+public class UdpClientWrapperTests
 {
-    private readonly IPEndPoint _localEndPoint;
-    private CancellationTokenSource? _cts;
-    private UdpClient? _udpClient;
-
-    public event EventHandler<byte[]>? MessageReceived;
-
-    public UdpClientWrapper(int port)
+    private static int GetFreeUdpPort()
     {
-        _localEndPoint = new IPEndPoint(IPAddress.Any, port);
+        using var udp = new UdpClient(0);
+        return ((IPEndPoint)udp.Client.LocalEndPoint!).Port;
     }
 
-    public async Task StartListeningAsync()
+    [Test]
+    public async Task StartListeningAsync_ReceivesMessage_RaisesEvent_AndCanBeStopped()
     {
-        // якщо вже є попередній CTS – акуратно його завершуємо
-        if (_cts is not null)
-        {
-            await _cts.CancelAsync();   // рекомендація Sonar: асинхронне скасування
-            _cts.Dispose();
-            _cts = null;
-        }
+        // arrange
+        int port = GetFreeUdpPort();
+        var wrapper = new UdpClientWrapper(port);
 
-        _cts = new CancellationTokenSource();
-        Console.WriteLine("Start listening for UDP messages...");
+        var tcs = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+        wrapper.MessageReceived += (_, data) => tcs.TrySetResult(data);
 
-        try
-        {
-            _udpClient = new UdpClient(_localEndPoint);
-            while (!_cts.Token.IsCancellationRequested)
-            {
-                UdpReceiveResult result = await _udpClient.ReceiveAsync(_cts.Token);
-                MessageReceived?.Invoke(this, result.Buffer);
+        var listenTask = wrapper.StartListeningAsync();
 
-                Console.WriteLine($"Received from {result.RemoteEndPoint}");
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // expected on cancellation
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error receiving message: {ex.Message}");
-        }
+        // даємо трохи часу, щоб UdpClient всередині встиг створитися
+        await Task.Delay(50);
+
+        // act: надсилаємо UDP-пакет на цей порт
+        using var sender = new UdpClient();
+        var payload = Encoding.UTF8.GetBytes("hello");
+        await sender.SendAsync(payload, payload.Length, new IPEndPoint(IPAddress.Loopback, port));
+
+        var completed = await Task.WhenAny(tcs.Task, Task.Delay(2000));
+
+        // assert: подія викликалась і дані коректні
+        Assert.That(completed, Is.SameAs(tcs.Task), "Timed out waiting for UDP message.");
+        Assert.That(tcs.Task.Result, Is.EqualTo(payload));
+
+        // зупиняємо слухання й переконуємось, що цикл завершився
+        wrapper.StopListening();
+        await Task.WhenAny(listenTask, Task.Delay(1000));
+        Assert.That(listenTask.IsCompleted, Is.True, "Listening loop should complete after StopListening().");
     }
 
-    public void StopListening()
+    [Test]
+    public async Task StartListeningAsync_WhenPortAlreadyInUse_CompletesAndDoesNotThrow()
     {
-        try
-        {
-            _cts?.Cancel();
-            _udpClient?.Close();
+        // займаємо порт окремим UdpClient, щоб створення всередині wrapper кинуло SocketException
+        using var occupied = new UdpClient(0);
+        int port = ((IPEndPoint)occupied.Client.LocalEndPoint!).Port;
 
-            _cts?.Dispose();
-            _cts = null;
-            _udpClient = null;
+        var wrapper = new UdpClientWrapper(port);
 
-            Console.WriteLine("Stopped listening for UDP messages.");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error while stopping: {ex.Message}");
-        }
+        // act
+        var task = wrapper.StartListeningAsync();
+
+        // assert: метод не повинен падати назовні, а просто завершитися в catch(Exception)
+        await Task.WhenAny(task, Task.Delay(1000));
+        Assert.That(task.IsCompleted, Is.True, "StartListeningAsync should complete when port is already in use.");
     }
 
-    public override int GetHashCode()
+    [Test]
+    public void StopListening_WithoutStart_DoesNotThrow()
     {
-        var payload = $"{nameof(UdpClientWrapper)}|{_localEndPoint.Address}|{_localEndPoint.Port}";
+        int port = GetFreeUdpPort();
+        var wrapper = new UdpClientWrapper(port);
 
-        using var md5 = MD5.Create();
-        var hash = md5.ComputeHash(Encoding.UTF8.GetBytes(payload));
-
-        return BitConverter.ToInt32(hash, 0);
+        Assert.That(() => wrapper.StopListening(), Throws.Nothing);
     }
 
-    public override bool Equals(object? obj)
+    [Test]
+    public void GetHashCode_IsConsistent_AndDependsOnEndpoint_AndEqualsIsConsistent()
     {
-        if (ReferenceEquals(this, obj))
-            return true;
-        if (obj is null || obj.GetType() != GetType())
-            return false;
+        var w1 = new UdpClientWrapper(12345);
+        var w2 = new UdpClientWrapper(12345);
+        var w3 = new UdpClientWrapper(12346);
 
-        var other = (UdpClientWrapper)obj;
-        return Equals(_localEndPoint, other._localEndPoint);
+        int h1 = w1.GetHashCode();
+        int h2 = w2.GetHashCode();
+        int h3 = w3.GetHashCode();
+
+        // однакові параметри -> однаковий hash
+        Assert.That(h1, Is.EqualTo(h2));
+        // інший порт -> майже напевно інший hash
+        Assert.That(h1, Is.Not.EqualTo(h3));
+
+        // перевіряємо Equals
+        Assert.That(w1.Equals(w2), Is.True);
+        Assert.That(w1.Equals(w3), Is.False);
+        Assert.That(w1.Equals(null), Is.False);
+        Assert.That(w1.Equals((object)w1), Is.True); // гілка ReferenceEquals
+    }
+
+    [Test]
+    public async Task StartListeningAsync_WhenExistingCts_CancelsAndDisposesPreviousToken()
+    {
+        int port = GetFreeUdpPort();
+        var wrapper = new UdpClientWrapper(port);
+
+        // через reflection підставляємо вже існуючий CTS, щоб _cts?.Cancel()/Dispose виконались
+        var ctsField = typeof(UdpClientWrapper)
+            .GetField("_cts", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.That(ctsField, Is.Not.Null);
+
+        var oldCts = new CancellationTokenSource();
+        ctsField!.SetValue(wrapper, oldCts);
+
+        var listenTask = wrapper.StartListeningAsync();
+
+        // трохи чекаємо, потім зупиняємо
+        await Task.Delay(50);
+        wrapper.StopListening();
+        await Task.WhenAny(listenTask, Task.Delay(500));
+
+        Assert.That(listenTask.IsCompleted, Is.True,
+            "Listening task should complete after StopListening when existing CTS was present.");
     }
 }
