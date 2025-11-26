@@ -25,8 +25,10 @@ namespace EchoServer
         private readonly int _port;
         private TcpListener _listener;
         private CancellationTokenSource _cancellationTokenSource;
+        
 
         public bool IsRunning => _listener != null && _listener.Server?.IsBound == true;
+        public int Port { get; }
         
         //constuctor
         public EchoServer(int port)
@@ -34,6 +36,8 @@ namespace EchoServer
             _port = port;
             _cancellationTokenSource = new CancellationTokenSource();
         }
+        
+        
 
         public async Task StartAsync()
         {
@@ -161,7 +165,7 @@ namespace EchoServer
         {
             _host = host;
             _port = port;
-            _udpClient = udp ?? new UdpClientAdapter(); // за замовчуванням реальний клієнт
+            _udpClient = udp ?? new UdpClientAdapter();
         }
 
         public void StartSending(int intervalMilliseconds)
