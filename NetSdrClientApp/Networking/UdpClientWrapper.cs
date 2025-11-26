@@ -6,6 +6,8 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
+namespace NetSdrClientApp.Networking;
+
 public class UdpClientWrapper : IUdpClient
 {
     private readonly IPEndPoint _localEndPoint;
@@ -21,6 +23,14 @@ public class UdpClientWrapper : IUdpClient
 
     public async Task StartListeningAsync()
     {
+        // якщо вже є попередній CTS – акуратно його завершуємо
+        if (_cts is not null)
+        {
+            await _cts.CancelAsync();   // рекомендація Sonar: асинхронне скасування
+            _cts.Dispose();
+            _cts = null;
+        }
+
         _cts = new CancellationTokenSource();
         Console.WriteLine("Start listening for UDP messages...");
 
@@ -35,9 +45,9 @@ public class UdpClientWrapper : IUdpClient
                 Console.WriteLine($"Received from {result.RemoteEndPoint}");
             }
         }
-        catch (OperationCanceledException ex)
+        catch (OperationCanceledException)
         {
-            //empty
+            // expected on cancellation
         }
         catch (Exception ex)
         {
@@ -45,17 +55,18 @@ public class UdpClientWrapper : IUdpClient
         }
     }
 
-    public void StopListening() => StopInternal("Stopped listening for UDP messages.");
-
-    public void Exit() => StopInternal("Stopped listening for UDP messages.");
-
-    private void StopInternal(string message)
+    public void StopListening()
     {
         try
         {
             _cts?.Cancel();
             _udpClient?.Close();
-            Console.WriteLine(message);
+
+            _cts?.Dispose();
+            _cts = null;
+            _udpClient = null;
+
+            Console.WriteLine("Stopped listening for UDP messages.");
         }
         catch (Exception ex)
         {
@@ -71,5 +82,16 @@ public class UdpClientWrapper : IUdpClient
         var hash = md5.ComputeHash(Encoding.UTF8.GetBytes(payload));
 
         return BitConverter.ToInt32(hash, 0);
+    }
+
+    public override bool Equals(object? obj)
+    {
+        if (ReferenceEquals(this, obj))
+            return true;
+        if (obj is null || obj.GetType() != GetType())
+            return false;
+
+        var other = (UdpClientWrapper)obj;
+        return Equals(_localEndPoint, other._localEndPoint);
     }
 }

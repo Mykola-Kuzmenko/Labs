@@ -59,6 +59,8 @@ namespace NetSdrClientApp.Networking
                 _cts?.Cancel();
                 _stream?.Close();
                 _tcpClient?.Close();
+                
+                _cts?.Dispose();
 
                 _cts = null;
                 _tcpClient = null;
@@ -71,22 +73,19 @@ namespace NetSdrClientApp.Networking
             }
         }
 
-        public Task SendMessageAsync(byte[] data) => SendInternalAsync(data);
-
-        public Task SendMessageAsync(string str)
-        {
-            var data = Encoding.UTF8.GetBytes(str);
-            return SendInternalAsync(data);
-        }
-
-        private async Task SendInternalAsync(byte[] data)
+        public async Task SendMessageAsync(byte[] data)
         {
             if (!Connected || _stream == null || !_stream.CanWrite)
                 throw new InvalidOperationException("Not connected to a server.");
 
-            Console.WriteLine($"Message sent: {string.Join(" ", data.Select(b => b.ToString("X2")))}");
+            Console.WriteLine("Message sent: " +
+                              string.Join(" ", data.Select(b => b.ToString("X2"))));
+
             await _stream.WriteAsync(data, 0, data.Length);
         }
+
+        public async Task SendMessageAsync(string str)
+            => await SendMessageAsync(Encoding.UTF8.GetBytes(str));
 
         private async Task StartListeningAsync()
         {

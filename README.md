@@ -1,11 +1,11 @@
 # Лабораторні з реінжинірингу (8×)
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=Mykola-Kuzmenko_Labs&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=Mykola-Kuzmenko_Labs)[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=ppanchen_NetSdrClient&metric=coverage)](https://sonarcloud.io/summary/new_code?id=ppanchen_NetSdrClient)
-[![Bugs](https://sonarcloud.io/api/project_badges/measure?project=ppanchen_NetSdrClient&metric=bugs)](https://sonarcloud.io/summary/new_code?id=ppanchen_NetSdrClient)
-[![Code Smells](https://sonarcloud.io/api/project_badges/measure?project=ppanchen_NetSdrClient&metric=code_smells)](https://sonarcloud.io/summary/new_code?id=ppanchen_NetSdrClient)
-[![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=ppanchen_NetSdrClient&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=ppanchen_NetSdrClient)
-[![Duplicated Lines (%)](https://sonarcloud.io/api/project_badges/measure?project=ppanchen_NetSdrClient&metric=duplicated_lines_density)](https://sonarcloud.io/summary/new_code?id=ppanchen_NetSdrClient)
-[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=ppanchen_NetSdrClient&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=ppanchen_NetSdrClient)
-[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=ppanchen_NetSdrClient&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=ppanchen_NetSdrClient)
+[![Bugs](https://sonarcloud.io/api/project_badges/measure?project=Mykola-Kuzmenko_Labs&metric=bugs)](https://sonarcloud.io/summary/new_code?id=Mykola-Kuzmenko_Labs)
+[![Code Smells](https://sonarcloud.io/api/project_badges/measure?project=Mykola-Kuzmenko_Labs&metric=code_smells)](https://sonarcloud.io/summary/new_code?id=Mykola-Kuzmenko_Labs)
+[![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=Mykola-Kuzmenko_Labs&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=Mykola-Kuzmenko_Labs)
+[![Duplicated Lines (%)](https://sonarcloud.io/api/project_badges/measure?project=Mykola-Kuzmenko_Labs&metric=duplicated_lines_density)](https://sonarcloud.io/summary/new_code?id=Mykola-Kuzmenko_Labs)
+[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=Mykola-Kuzmenko_Labs&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=Mykola-Kuzmenko_Labs)
+[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=Mykola-Kuzmenko_Labs&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=Mykola-Kuzmenko_Labs)
 
 
 Цей репозиторій використовується для курсу **реінжиніринг ПЗ**. 
