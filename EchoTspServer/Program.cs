@@ -28,7 +28,7 @@ namespace EchoServer
         
 
         public bool IsRunning => _listener != null && _listener.Server?.IsBound == true;
-        public int Port { get; }
+        public int Port { get; private set; }
         
         //constuctor
         public EchoServer(int port)
@@ -43,6 +43,7 @@ namespace EchoServer
         {
             _listener = new TcpListener(IPAddress.Loopback, _port);
             _listener.Start();
+            Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
             Console.WriteLine($"Server started on port {_port}.");
 
             while (!_cancellationTokenSource.Token.IsCancellationRequested)

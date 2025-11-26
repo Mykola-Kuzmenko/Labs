@@ -13,30 +13,30 @@ namespace EchoServerTests
         [Test]
         public async Task StartAsync_Then_Stop_CompletesCleanly_WhenNoClients()
         {
-            // arrange
-            var server = new EchoServer.EchoServer(50555);
+            var server = new EchoServer.EchoServer(0);   // ← порт 0 = ОС вибере сама
             var runTask = Task.Run(() => server.StartAsync());
 
-            // act: дочекаємось старту
-            await SpinWaitUntil(async () => server.IsRunning, TimeSpan.FromSeconds(2));
-            server.Stop();
+            await SpinWaitUntil(() => server.IsRunning, TimeSpan.FromSeconds(2));
 
-            // assert: цикл завершився
+            server.Stop();
             await Task.WhenAny(runTask, Task.Delay(1000));
+
             Assert.That(runTask.IsCompleted, Is.True);
         }
 
         [Test]
         public async Task Echo_Roundtrip_Works()
         {
-            var port = 50556;
-            var server = new EchoServer.EchoServer(port);
+            var server = new EchoServer.EchoServer(0); // ← порт 0
             var runTask = Task.Run(() => server.StartAsync());
-            await SpinWaitUntil(async () => server.IsRunning, TimeSpan.FromSeconds(2));
 
-            // act: реальний TCP-клієнт
+            await SpinWaitUntil(() => server.IsRunning, TimeSpan.FromSeconds(2));
+
+            var port = server.Port; // ← тепер тест знає реальний порт
+
             using var client = new TcpClient();
             await client.ConnectAsync(IPAddress.Loopback, port);
+
             using var stream = client.GetStream();
 
             var send = System.Text.Encoding.UTF8.GetBytes("ping");
@@ -49,7 +49,6 @@ namespace EchoServerTests
             server.Stop();
             await Task.WhenAny(runTask, Task.Delay(1000));
 
-            // assert
             Assert.That(received, Is.EqualTo("ping"));
         }
 
@@ -57,18 +56,22 @@ namespace EchoServerTests
         public void UdpTimedSender_StartStop_InvokesSend()
         {
             var udp = new Mock<IUdpClientLite>();
-            // дозволяємо виклик Send будь-де
+
             udp.Setup(x => x.Send(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<IPEndPoint>()))
-                .Returns((byte[] b, int i, IPEndPoint ep) => i); 
-            
-            using var sender = new UdpTimedSender("127.0.0.1", 60000, udp.Object);
+               .Returns((byte[] b, int i, IPEndPoint ep) => i);
+
+            // тут порт може бути хоч 0 — бо Send() моканий
+            using var sender = new UdpTimedSender("127.0.0.1", 0, udp.Object);
 
             sender.StartSending(10);
-            Thread.Sleep(60);     // даємо таймеру “вистрілити” кілька разів
+            Thread.Sleep(60);
             sender.StopSending();
 
-            udp.Verify(x => x.Send(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<IPEndPoint>()),
-                       Times.AtLeastOnce);
+            udp.Verify(x => x.Send(
+                    It.IsAny<byte[]>(),
+                    It.IsAny<int>(),
+                    It.IsAny<IPEndPoint>()),
+                Times.AtLeastOnce);
         }
 
         [Test]
@@ -76,34 +79,37 @@ namespace EchoServerTests
         {
             var udp = new Mock<IUdpClientLite>();
 
-            // правильна сигнатура для Send(byte[], int, IPEndPoint)
             udp.Setup(x => x.Send(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<IPEndPoint>()))
-                .Returns((byte[] b, int i, IPEndPoint ep) => i);
+               .Returns((byte[] b, int i, IPEndPoint ep) => i);
 
-            using var sender = new UdpTimedSender("127.0.0.1", 60000, udp.Object);
+            using var sender = new UdpTimedSender("127.0.0.1", 0, udp.Object);
 
-            // дістати приватний метод
-            var mi = typeof(UdpTimedSender).GetMethod("SendMessageCallback", BindingFlags.Instance | BindingFlags.NonPublic);
+            var mi = typeof(UdpTimedSender)
+                .GetMethod("SendMessageCallback", BindingFlags.Instance | BindingFlags.NonPublic);
+
             Assert.That(mi, Is.Not.Null);
 
-            // виклик через reflection
             mi!.Invoke(sender, new object?[] { null });
 
-            // перевірка, що Send дійсно викликався
-            udp.Verify(x => x.Send(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<IPEndPoint>()),
+            udp.Verify(x => x.Send(
+                    It.IsAny<byte[]>(),
+                    It.IsAny<int>(),
+                    It.IsAny<IPEndPoint>()),
                 Times.AtLeastOnce);
         }
+
         [Test]
         public async Task EchoServer_Main_CanBeInvokedSafely()
         {
             var mainMethod = typeof(EchoServer.EchoServer)
                 .GetMethod("Main", BindingFlags.Static | BindingFlags.Public);
+
             Assert.That(mainMethod, Is.Not.Null);
 
-            // Глушимо вивід замість StringWriter — нічого не закривається
             Console.SetOut(TextWriter.Null);
 
             bool executed = false;
+
             try
             {
                 await (Task)mainMethod!.Invoke(null, new object?[] { Array.Empty<string>() });
@@ -111,24 +117,25 @@ namespace EchoServerTests
             }
             catch
             {
-                executed = true; // навіть якщо Main падає
+                executed = true;
             }
 
-            Assert.That(executed, Is.True, "Main method was invoked.");
+            Assert.That(executed, Is.True);
         }
 
-
-        // невеличкий helper, щоб чемно дочекатись стану
         private static async Task SpinWaitUntil(Func<Task<bool>> cond, TimeSpan timeout)
         {
             var start = DateTime.UtcNow;
+
             while (DateTime.UtcNow - start < timeout)
             {
                 if (await cond()) return;
                 await Task.Delay(25);
             }
+
             Assert.Fail("Timed out while waiting for condition.");
         }
+
         private static async Task SpinWaitUntil(Func<bool> cond, TimeSpan timeout)
             => await SpinWaitUntil(() => Task.FromResult(cond()), timeout);
     }
